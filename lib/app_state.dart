@@ -1,5 +1,5 @@
 // lib/app_state.dart
-// FIXED: Manages the full two-way challenge flow.
+// FIXED: The call to challengeUser now correctly passes all three required arguments.
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -16,11 +16,8 @@ class AppState extends ChangeNotifier {
   AppUser? currentUser;
   List<AppUser> onlineUsers = [];
 
-  // State for incoming challenges
   String? incomingChallengeFromId;
   String? incomingChallengeFromUsername;
-
-  // State for when a challenge you sent is accepted
   AppUser? acceptedGameOpponent;
 
   StreamSubscription? _challengeSubscription;
@@ -39,7 +36,7 @@ class AppState extends ChangeNotifier {
     currentUser = AppUser(id: userId, username: username);
     await _redisService.setUserOnline(currentUser!.id, currentUser!.username);
     await fetchOnlineUsers();
-    _listenForChallenges();
+    _setupAllListeners();
     notifyListeners();
   }
 
@@ -55,15 +52,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Called when you challenge someone else
+  // --- THE FIX IS HERE ---
+  // The call to the Redis service now includes the current user's username.
   Future<void> challengeUser(String opponentId) async {
     if (currentUser == null) return;
-    // Start listening for an acceptance before sending the challenge
-    _listenForAcceptedChallenges();
-    await _redisService.challengeUser(currentUser!.id, opponentId);
+    // This now correctly passes all 3 required arguments.
+    await _redisService.challengeUser(
+      currentUser!.id,
+      currentUser!.username,
+      opponentId,
+    );
   }
 
-  // Called from the dialog when you accept a challenge
   Future<void> acceptChallenge(AppUser challenger) async {
     if (currentUser == null) return;
     await _redisService.acceptChallenge(
@@ -74,34 +74,31 @@ class AppState extends ChangeNotifier {
     clearChallenge();
   }
 
-  // Listens for people challenging you
-  void _listenForChallenges() {
+  void _setupAllListeners() {
     if (currentUser == null) return;
-    _challengeSubscription?.cancel();
-    _challengeSubscription = _redisService
-        .listenToChallenges(currentUser!.id)
-        .listen((challengerId) async {
-          final username = await _redisService.redisCmd.send_object([
-            'HGET',
-            'user:$challengerId',
-            'username',
-          ]);
-          incomingChallengeFromId = challengerId;
-          incomingChallengeFromUsername = username as String?;
-          notifyListeners();
-        });
-  }
 
-  // Listens for people accepting your challenges
-  void _listenForAcceptedChallenges() {
-    if (currentUser == null) return;
+    _redisService.subscribeToChallenges(currentUser!.id);
+    _redisService.subscribeToAcceptedChallenges(currentUser!.id);
+
+    _challengeSubscription?.cancel();
+    _challengeSubscription = _redisService.challengeStream.listen((payload) {
+      final parts = payload.split(':');
+      if (parts.length < 2) return;
+
+      incomingChallengeFromId = parts[0];
+      incomingChallengeFromUsername = parts.sublist(1).join(':');
+      notifyListeners();
+    });
+
     _acceptedChallengeSubscription?.cancel();
-    _acceptedChallengeSubscription = _redisService
-        .listenToAcceptedChallenges(currentUser!.id)
+    _acceptedChallengeSubscription = _redisService.acceptedChallengeStream
         .listen((payload) {
           final parts = payload.split(':');
+          if (parts.length < 2) return;
+
           final opponentId = parts[0];
-          final opponentUsername = parts[1];
+          final opponentUsername = parts.sublist(1).join(':');
+
           acceptedGameOpponent = AppUser(
             id: opponentId,
             username: opponentUsername,
@@ -118,7 +115,18 @@ class AppState extends ChangeNotifier {
 
   void clearAcceptedGame() {
     acceptedGameOpponent = null;
-    _acceptedChallengeSubscription?.cancel();
+  }
+
+  void listenToGameScores(String gameId) {
+    _redisService.subscribeToGameScores(gameId);
+    _scoreSubscription?.cancel();
+    _scoreSubscription = _redisService.scoreStream.listen((scoreData) {
+      final parts = scoreData.split(':');
+      final playerId = parts[0];
+      final score = int.tryParse(parts[1]) ?? 0;
+      scores[playerId] = score;
+      notifyListeners();
+    });
   }
 
   @override
@@ -129,30 +137,16 @@ class AppState extends ChangeNotifier {
     _challengeSubscription?.cancel();
     _acceptedChallengeSubscription?.cancel();
     _scoreSubscription?.cancel();
+    _redisService.dispose();
     super.dispose();
   }
 
-  // Other methods (addDummyBot, listenToGameScores, etc.) remain the same
   Future<void> addDummyBot() async {
     await _redisService.setUserOnline(
       'bot-${DateTime.now().millisecondsSinceEpoch}',
       'DummyBot',
     );
     await fetchOnlineUsers();
-  }
-
-
-  void listenToGameScores(String gameId) {
-    _scoreSubscription?.cancel();
-    _scoreSubscription = _redisService.listenToScores(gameId).listen((
-      scoreData,
-    ) {
-      final parts = scoreData.split(':');
-      final playerId = parts[0];
-      final score = int.tryParse(parts[1]) ?? 0;
-      scores[playerId] = score;
-      notifyListeners();
-    });
   }
 
   Future<void> updateMyScore(String gameId, int newScore) async {
