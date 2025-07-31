@@ -1,5 +1,5 @@
 // lib/home_page.dart
-
+// FIXED: Dialog logic is now smarter and the page listens for accepted challenges.
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +14,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   Timer? _timer;
+  // Flag to prevent showing multiple dialogs
   bool _isDialogShowing = false;
 
   @override
@@ -25,28 +26,24 @@ class _HomePageState extends State<HomePage> {
       }
     });
 
+    // Add a single listener to handle all state changes
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().addListener(_handleStateChanges);
     });
   }
 
   void _handleStateChanges() {
+    // Use a single listener to check for different conditions
     _showChallengeDialog();
     _navigateToAcceptedGame();
   }
 
-
-  String _createDeterministicGameId(String userId1, String userId2) {
-
-    List<String> ids = [userId1, userId2];
-    ids.sort();
-    return ids.join('-'); // Join with a separator for a clean ID
-  }
-
   void _showChallengeDialog() {
     final appState = context.read<AppState>();
+    // Don't show dialog if one is already visible or there's no challenge
     if (_isDialogShowing || appState.incomingChallengeFromId == null) return;
 
+    // Set the flag to true and show the dialog
     setState(() {
       _isDialogShowing = true;
     });
@@ -73,62 +70,39 @@ class _HomePageState extends State<HomePage> {
                 id: appState.incomingChallengeFromId!,
                 username: appState.incomingChallengeFromUsername!,
               );
+              // Accept the challenge, which notifies the challenger
               appState.acceptChallenge(challenger);
-
-              // --- FIX: Create and pass the deterministic game ID ---
-              final gameId = _createDeterministicGameId(
-                challenger.id,
-                appState.currentUser!.id,
-              );
-
-              Navigator.of(context).pop();
-              // Pass a map containing both the opponent and the game ID
-              Navigator.pushNamed(
-                context,
-                '/game',
-                arguments: {'opponent': challenger, 'gameId': gameId},
-              );
+              Navigator.of(context).pop(); // Close the dialog
+              // Navigate to the game page
+              Navigator.pushNamed(context, '/game', arguments: challenger);
             },
             child: const Text('Accept'),
           ),
         ],
       ),
     ).then((_) {
-      if (mounted) {
-        setState(() {
-          _isDialogShowing = false;
-        });
-      }
+      // This runs after the dialog is closed, so we reset the flag
+      setState(() {
+        _isDialogShowing = false;
+      });
     });
   }
 
   void _navigateToAcceptedGame() {
     final appState = context.read<AppState>();
+    // If a game was accepted by an opponent, navigate to it
     if (appState.acceptedGameOpponent != null) {
       final opponent = appState.acceptedGameOpponent!;
+      // Important: Clear the state so we don't navigate again
       appState.clearAcceptedGame();
-
-      // --- FIX: Create and pass the deterministic game ID ---
-      final gameId = _createDeterministicGameId(
-        opponent.id,
-        appState.currentUser!.id,
-      );
-
-      // Pass a map containing both the opponent and the game ID
-      Navigator.pushNamed(
-        context,
-        '/game',
-        arguments: {'opponent': opponent, 'gameId': gameId},
-      );
+      Navigator.pushNamed(context, '/game', arguments: opponent);
     }
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    if (mounted) {
-      context.read<AppState>().removeListener(_handleStateChanges);
-    }
+    context.read<AppState>().removeListener(_handleStateChanges);
     super.dispose();
   }
 

@@ -1,5 +1,5 @@
 // lib/redis_service.dart
-
+// FIXED: The challenge payload now includes the username to prevent a command/PubSub conflict.
 import 'dart:async';
 import 'package:redis/redis.dart';
 
