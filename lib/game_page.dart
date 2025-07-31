@@ -50,6 +50,11 @@ class _GamePageState extends State<GamePage> {
 
     // Get scores from the state
     final myDisplayScore = appState.scores[currentUser?.id] ?? 0;
+    print('my score:--------------------------- $myDisplayScore');
+    print('opponett:--------------------------- $_opponent');
+    print(
+      'bool of appState:--------------------------- ${_opponent != null} ${appState.scores[_opponent!.id]} ${_opponent!.id}',
+    );
     final opponentDisplayScore =
         (_opponent != null ? appState.scores[_opponent!.id] : null) ?? 0;
 

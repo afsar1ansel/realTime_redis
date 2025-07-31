@@ -121,6 +121,9 @@ class AppState extends ChangeNotifier {
     _redisService.subscribeToGameScores(gameId);
     _scoreSubscription?.cancel();
     _scoreSubscription = _redisService.scoreStream.listen((scoreData) {
+      print(
+        'Received score update:++++++++++++++++++++++++++ $scoreData, $gameId',
+      );
       final parts = scoreData.split(':');
       final playerId = parts[0];
       final score = int.tryParse(parts[1]) ?? 0;
@@ -150,6 +153,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> updateMyScore(String gameId, int newScore) async {
+    print('Updating score for game $gameId: $newScore');
     if (currentUser == null) return;
     scores[currentUser!.id] = newScore;
     await _redisService.publishScore(gameId, currentUser!.id, newScore);
