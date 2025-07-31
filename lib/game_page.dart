@@ -1,7 +1,7 @@
 // lib/game_page.dart
+// FIXED: Receives and uses the shared game ID from navigation arguments.
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 import 'app_state.dart';
 
 class GamePage extends StatefulWidget {
@@ -12,22 +12,29 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
+  // These will be initialized with data from the navigation arguments
   late String _gameId;
   AppUser? _opponent;
+
+  // This score is local to the user's button presses
   int _myScore = 0;
 
   @override
   void initState() {
     super.initState();
-    // A unique ID for this game session
-    _gameId = Uuid().v4();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Get opponent data passed from the home page
-      _opponent = ModalRoute.of(context)!.settings.arguments as AppUser?;
+      // --- FIX: Receive a Map of arguments instead of just the opponent ---
+      final args =
+          ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+      _opponent = args['opponent'] as AppUser;
+      _gameId = args['gameId'] as String; // Use the shared gameId
 
       final appState = Provider.of<AppState>(context, listen: false);
+      // Listen for scores on the correct, shared game channel
       appState.listenToGameScores(_gameId);
+
+      // We call setState to ensure the opponent's name renders correctly on the first frame
       setState(() {});
     });
   }
@@ -36,6 +43,7 @@ class _GamePageState extends State<GamePage> {
     setState(() {
       _myScore++;
     });
+    // Publish the score to the correct, shared game channel
     Provider.of<AppState>(
       context,
       listen: false,
@@ -44,17 +52,12 @@ class _GamePageState extends State<GamePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch for changes in the AppState
+    // Watch for score changes from AppState
     final appState = context.watch<AppState>();
     final currentUser = appState.currentUser;
 
-    // Get scores from the state
+    // Get scores from the central state map
     final myDisplayScore = appState.scores[currentUser?.id] ?? 0;
-    print('my score:--------------------------- $myDisplayScore');
-    print('opponett:--------------------------- $_opponent');
-    print(
-      'bool of appState:--------------------------- ${_opponent != null} ${appState.scores[_opponent!.id]} ${_opponent!.id}',
-    );
     final opponentDisplayScore =
         (_opponent != null ? appState.scores[_opponent!.id] : null) ?? 0;
 
@@ -68,7 +71,6 @@ class _GamePageState extends State<GamePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            // Score Display
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -84,8 +86,6 @@ class _GamePageState extends State<GamePage> {
                 ),
               ],
             ),
-
-            // Action Button
             ElevatedButton.icon(
               icon: const Icon(Icons.add),
               label: const Text('Add 1 to My Score'),
